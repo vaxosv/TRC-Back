@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
-import type { StravaActivity, StravaAthlete } from "./types";
+import type {StravaActivity, StravaAthlete} from "./types";
 
 /**
  * Thin wrapper around Firebase Realtime Database.
@@ -24,7 +24,7 @@ export class DatabaseService {
       const snapshot = await this.athleteRef(athleteId).once("value");
 
       if (!snapshot.exists()) {
-        logger.warn("Athlete not found", { athleteId });
+        logger.warn("Athlete not found", {athleteId});
         return null;
       }
 
@@ -49,7 +49,7 @@ export class DatabaseService {
 
       return snapshot.val() as Record<number, StravaAthlete>;
     } catch (error) {
-      logger.error("Failed to read athletes", { error: toMessage(error) });
+      logger.error("Failed to read athletes", {error: toMessage(error)});
       throw error;
     }
   }
@@ -78,7 +78,7 @@ export class DatabaseService {
   ): Promise<void> {
     try {
       await this.athleteRef(athleteId).update(tokens);
-      logger.info("Athlete tokens updated", { athleteId });
+      logger.info("Athlete tokens updated", {athleteId});
     } catch (error) {
       logger.error("Failed to update athlete tokens", {
         athleteId,
@@ -94,7 +94,7 @@ export class DatabaseService {
 
       await this.activitiesRef(athleteId).update(updates);
 
-      logger.info("Activities saved", { athleteId, count: activities.length });
+      logger.info("Activities saved", {athleteId, count: activities.length});
     } catch (error) {
       logger.error("Failed to save activities", {
         athleteId,
