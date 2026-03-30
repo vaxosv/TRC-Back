@@ -1,44 +1,43 @@
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
-import type {StravaActivity, StravaAthlete, StravaTokens} from "./types";
+import type { StravaActivity, StravaAthlete } from "./types";
 
 /**
- * Database service for Firebase Realtime Database operations
+ * Thin wrapper around Firebase Realtime Database.
+ * All paths are centralised here so callers never hard-code ref strings.
  */
 export class DatabaseService {
-  private db: admin.database.Database | null = null;
+  // ── Paths ────────────────────────────────────────────────────────────────
 
-  /**
-   * Get athlete by Strava athlete ID
-   * @param {number} athleteId - Strava athlete ID
-   */
+  private athleteRef(athleteId: number) {
+    return this.db.ref(`athletes/${athleteId}`);
+  }
+
+  private activitiesRef(athleteId: number) {
+    return this.db.ref(`activities/${athleteId}`);
+  }
+
+  // ── Athlete queries ──────────────────────────────────────────────────────
+
   async getAthlete(athleteId: number): Promise<StravaAthlete | null> {
     try {
-      const snapshot = await this.getDatabase()
-        .ref(`athletes/${athleteId}`)
-        .once("value");
+      const snapshot = await this.athleteRef(athleteId).once("value");
 
       if (!snapshot.exists()) {
-        logger.warn(`Athlete not found: ${athleteId}`);
+        logger.warn("Athlete not found", { athleteId });
         return null;
       }
 
       return snapshot.val() as StravaAthlete;
     } catch (error) {
-      logger.error("Error reading athlete from database", {
-        athleteId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.error("Failed to read athlete", { athleteId, error: toMessage(error) });
       throw error;
     }
   }
 
-  /**
-   * Get all athletes from Realtime Database
-   */
   async getAllAthletes(): Promise<Record<number, StravaAthlete>> {
     try {
-      const snapshot = await this.getDatabase().ref("athletes").once("value");
+      const snapshot = await this.db.ref("athletes").once("value");
 
       if (!snapshot.exists()) {
         logger.warn("No athletes found in database");
@@ -47,105 +46,62 @@ export class DatabaseService {
 
       return snapshot.val() as Record<number, StravaAthlete>;
     } catch (error) {
-      logger.error("Error reading athletes from database", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.error("Failed to read athletes", { error: toMessage(error) });
       throw error;
     }
   }
 
-  /**
-   * Update athlete tokens after Strava token refresh
-   * @param {number} athleteId - Strava athlete ID
-   * @param {StravaTokens} tokens - Refreshed tokens to persist
-   */
-  async updateAthleteTokens(
-    athleteId: number,
-    tokens: StravaTokens,
-  ): Promise<void> {
-    try {
-      await this.getDatabase().ref(`athletes/${athleteId}`).update({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expires_at: tokens.expires_at,
-      });
-      logger.info("Athlete tokens updated", {athleteId});
-    } catch (error) {
-      logger.error("Error updating athlete tokens", {
-        athleteId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
+  // ── Activity queries ─────────────────────────────────────────────────────
 
-  /**
-   * Save activities for an athlete
-   * @param {number} athleteId - Strava athlete ID
-   * @param {StravaActivity[]} activities - Array of activities to save
-   */
-  async saveActivities(
-    athleteId: number,
-    activities: StravaActivity[],
-  ): Promise<void> {
-    try {
-      const activitiesRef = this.getDatabase().ref(`activities/${athleteId}`);
-
-      const updates: Record<string, StravaActivity> = {};
-      activities.forEach((activity) => {
-        updates[activity.id.toString()] = activity;
-      });
-
-      await activitiesRef.update(updates);
-
-      logger.info("Activities saved successfully", {
-        athleteId,
-        count: activities.length,
-      });
-    } catch (error) {
-      logger.error("Error saving activities to database", {
-        athleteId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Get activities for an athlete
-   * @param {number} athleteId - Strava athlete ID
-   */
   async getActivities(athleteId: number): Promise<StravaActivity[]> {
     try {
-      const snapshot = await this.getDatabase()
-        .ref(`activities/${athleteId}`)
-        .once("value");
+      const snapshot = await this.activitiesRef(athleteId).once("value");
 
-      if (!snapshot.exists()) {
-        return [];
-      }
+      if (!snapshot.exists()) return [];
 
-      const activitiesObj = snapshot.val() as Record<string, StravaActivity>;
-      return Object.values(activitiesObj);
+      return Object.values(snapshot.val() as Record<string, StravaActivity>);
     } catch (error) {
-      logger.error("Error reading activities from database", {
-        athleteId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.error("Failed to read activities", { athleteId, error: toMessage(error) });
       throw error;
     }
   }
 
-  /**
-   * Initialize Firebase Realtime Database connection
-   * @return {admin.database.Database} The Firebase database instance
-   */
-  private getDatabase(): admin.database.Database {
-    if (!this.db) {
-      this.db = admin.database();
+  async updateAthleteTokens(athleteId: number, tokens: Pick<StravaAthlete, "access_token" | "refresh_token" | "expires_at">): Promise<void> {
+    try {
+      await this.athleteRef(athleteId).update(tokens);
+      logger.info("Athlete tokens updated", { athleteId });
+    } catch (error) {
+      logger.error("Failed to update athlete tokens", { athleteId, error: toMessage(error) });
+      throw error;
     }
-    return this.db;
   }
+
+  async saveActivities(athleteId: number, activities: StravaActivity[]): Promise<void> {
+    try {
+      const updates = Object.fromEntries(
+        activities.map((a) => [a.id.toString(), a])
+      );
+
+      await this.activitiesRef(athleteId).update(updates);
+
+      logger.info("Activities saved", { athleteId, count: activities.length });
+    } catch (error) {
+      logger.error("Failed to save activities", { athleteId, error: toMessage(error) });
+      throw error;
+    }
+  }
+
+  // ── Internals ────────────────────────────────────────────────────────────
+
+  private get db(): admin.database.Database {
+    return admin.database();
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function toMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export const dbService = new DatabaseService();

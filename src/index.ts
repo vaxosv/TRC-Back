@@ -1,173 +1,166 @@
 import * as admin from "firebase-admin";
-import {onRequest} from "firebase-functions/v2/https";
+import { onRequest, Request } from "firebase-functions/v2/https";
+import type { Response } from "express";
 import * as logger from "firebase-functions/logger";
-import {stravaClient} from "./strava";
-import {dbService} from "./database";
-import {WebhookEvent} from "./types";
-
-export const STRAVA_WEBHOOK_TOKEN = "strava_webhook_token";
+import { stravaClient } from "./strava";
+import { dbService } from "./database";
+import type { WebhookEvent } from "./types";
 
 admin.initializeApp();
 
-const httpFunctionOptions = {region: "europe-north1" as const};
+export const STRAVA_WEBHOOK_TOKEN = "strava_webhook_token";
 
-export const stravaWebhookHandlerNew = onRequest(
-  httpFunctionOptions,
-  async (request, response): Promise<void> => {
-    // ── 1) VERIFICATION (GET) ──────────────────────────────────────────────
-    if (request.method === "GET") {
-      const mode = request.query["hub.mode"] as string;
-      const token = request.query["hub.verify_token"] as string;
-      const challenge = request.query["hub.challenge"] as string;
+const REGION = "europe-north1" as const;
+const RECENT_ACTIVITY_LIMIT = 2;
 
-      logger.info("Strava verification request", {mode, token, challenge});
+// ── Webhook handler class ──────────────────────────────────────────────────
 
-      if (mode === "subscribe" && token === STRAVA_WEBHOOK_TOKEN) {
-        response.status(200).json({"hub.challenge": challenge});
-      } else {
-        logger.warn("Verification failed - invalid token", {token});
-        response.status(403).json({error: "Invalid token"});
-      }
-      return;
+class WebhookHandler {
+  async handle(req: Request, res: Response): Promise<void> {
+    switch (req.method) {
+      case "GET":
+        return this.handleVerification(req, res);
+      case "POST":
+        return this.handleEvent(req, res);
+      default:
+        res.status(405).json({ error: "Method not allowed" });
     }
+  }
 
-    // ── 2) ONLY POST BEYOND THIS POINT ────────────────────────────────────
-    if (request.method !== "POST") {
-      response.status(405).json({error: "Method not allowed"});
-      return;
+  // ── Strava subscription verification ──────────────────────────────────
+
+  private handleVerification(req: Request, res: Response): void {
+    const mode = req.query["hub.mode"] as string;
+    const token = req.query["hub.verify_token"] as string;
+    const challenge = req.query["hub.challenge"] as string;
+
+    logger.info("Strava verification request", { mode, token, challenge });
+
+    if (mode === "subscribe" && token === STRAVA_WEBHOOK_TOKEN) {
+      res.status(200).json({ "hub.challenge": challenge });
+    } else {
+      logger.warn("Verification failed — invalid token", { token });
+      res.status(403).json({ error: "Invalid token" });
     }
+  }
 
-    // ── 3) PROCESS WEBHOOK EVENT ──────────────────────────────────────────
+  // ── Incoming webhook event ─────────────────────────────────────────────
+
+  private async handleEvent(req: Request, res: Response): Promise<void> {
     try {
-      const event = request.body as WebhookEvent;
+      const event = req.body as WebhookEvent;
 
-      logger.info("Strava webhook event received", {
+      logger.info("Webhook event received", {
         objectType: event.object_type,
-        objectId: event.object_id,
         aspectType: event.aspect_type,
+        objectId: event.object_id,
         ownerId: event.owner_id,
-        time: event.event_time,
-        full: event,
       });
 
-      // Only handle activity.created and activity.updated
-      if (
-        event.object_type === "athlete"
-      ) {
-        logger.info("Event not relevant, skipping", {
-          objectType: event.object_type,
-          aspectType: event.aspect_type,
-          full: event,
-        });
-        response.status(200).json({status: "ok"});
+      if (event.object_type === "athlete") {
+        logger.info("Athlete event — skipping", { aspectType: event.aspect_type });
+        res.status(200).json({ status: "ok" });
         return;
       }
 
-      const athleteId = event.owner_id;
+      const { activities } = await this.fetchAndSaveActivities(event.owner_id);
 
-      const athlete = await dbService.getAthlete(athleteId);
-      if (!athlete) {
-        logger.warn(`Athlete not found: ${athleteId}`);
-        response.status(404).json({error: "Athlete not found"});
-        logger.error("Athlete not found", {
-          athleteId,
-        });
+      if (activities.length === 0) {
+        res.status(200).json({ status: "ok", message: "No activities to save" });
         return;
       }
 
-      logger.info("Athlete found, fetching activities", {
-        athleteId,
-        athleteName: `${athlete.firstname} ${athlete.lastname}`,
-      });
+      res.status(200).json({ status: "ok", activitiesSaved: activities.length, activities });
+    } catch (error) {
+      logger.error("Error processing webhook", { error: toMessage(error), body: req.body });
+      res.status(500).json({ error: "Internal server error", message: toMessage(error) });
+    }
+  }
 
+  // ── Shared logic ───────────────────────────────────────────────────────
 
-      const recentActivities = await stravaClient.getRecentActivities(
+  async fetchAndSaveActivities(athleteId: number) {
+    const athlete = await dbService.getAthlete(athleteId);
+
+    if (!athlete) {
+      logger.error("Athlete not found", { athleteId });
+      throw new AthleteNotFoundError(athleteId);
+    }
+
+    logger.info("Athlete found", { athleteId, name: `${athlete.firstname} ${athlete.lastname}` });
+
+    const { activities, refreshedTokens } = await stravaClient.getRecentActivities(
         {
           access_token: athlete.access_token,
           refresh_token: athlete.refresh_token,
           expires_at: athlete.expires_at,
         },
-        2,
-      );
+        RECENT_ACTIVITY_LIMIT
+    );
 
-      if (recentActivities.activities.length === 0) {
-        logger.info("No recent activities found", {athleteId});
-        response.status(200).json({
-          status: "ok",
-          message: "No activities to save",
-        });
-        return;
-      }
-
-      await dbService.saveActivities(athleteId, recentActivities.activities);
-
-      logger.info("Webhook processed successfully", {
-        athleteId,
-        activitiesCount: recentActivities.activities.length,
-      });
-
-      response.status(200).json({
-        status: "ok",
-        activitiesSaved: recentActivities.activities.length,
-        activities: recentActivities,
-      });
-      return;
-    } catch (error) {
-      logger.error("Error processing Strava webhook", {
-        error: error instanceof Error ? error.message : String(error),
-        body: request.body,
-      });
-      response.status(500).json({
-        error: "Internal server error",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
-      return;
-    }
-  },
-);
-
-/**
- * Manual trigger to fetch activities for a specific athlete
- */
-export const fetchAthleteActivitiesNew = onRequest(
-  httpFunctionOptions,
-  async (request, response): Promise<void> => {
-    try {
-      const athleteId = parseInt(request.query.athleteId as string, 10);
-
-      if (!athleteId || isNaN(athleteId)) {
-        response.status(400).json({error: "Invalid athleteId"});
-        return;
-      }
-
-      const athlete = await dbService.getAthlete(athleteId);
-      if (!athlete) {
-        response.status(404).json({error: "Athlete not found"});
-        return;
-      }
-
-      const {activities} = await stravaClient.getRecentActivities({
-        access_token: athlete.access_token,
-        refresh_token: athlete.refresh_token,
-        expires_at: athlete.expires_at,
-      }, 2);
+    if (activities.length > 0) {
       await dbService.saveActivities(athleteId, activities);
-
-      response.status(200).json({
-        athleteId,
-        activitiesSaved: activities.length,
-        activities,
-      });
-      return;
-    } catch (error) {
-      logger.error("Error in fetchAthleteActivitiesNew", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      response.status(500).json({
-        error: "Internal server error",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
-      return;
+      logger.info("Activities saved", { athleteId, count: activities.length });
     }
-  },
+
+    // Persist refreshed tokens when Strava rotated them
+    if (refreshedTokens) {
+      await dbService.updateAthleteTokens(athleteId, refreshedTokens);
+      logger.info("Tokens refreshed and persisted", { athleteId });
+    }
+
+    return { activities };
+  }
+}
+
+// ── Custom errors ──────────────────────────────────────────────────────────
+
+class AthleteNotFoundError extends Error {
+  constructor(public readonly athleteId: number) {
+    super(`Athlete not found: ${athleteId}`);
+    this.name = "AthleteNotFoundError";
+  }
+}
+
+// ── Singleton ──────────────────────────────────────────────────────────────
+
+const webhookHandler = new WebhookHandler();
+
+// ── Cloud Functions ────────────────────────────────────────────────────────
+
+export const stravaWebhookHandler = onRequest(
+    { region: REGION },
+    (req, res) => webhookHandler.handle(req, res)
 );
+
+export const fetchAthleteActivities = onRequest(
+    { region: REGION },
+    async (req, res) => {
+      try {
+        const athleteId = parseInt(req.query.athleteId as string, 10);
+
+        if (!athleteId || isNaN(athleteId)) {
+          res.status(400).json({ error: "Invalid athleteId" });
+          return;
+        }
+
+        const { activities } = await webhookHandler.fetchAndSaveActivities(athleteId);
+
+        res.status(200).json({ athleteId, activitiesSaved: activities.length, activities });
+      } catch (error) {
+        if (error instanceof AthleteNotFoundError) {
+          res.status(404).json({ error: "Athlete not found", athleteId: error.athleteId });
+          return;
+        }
+
+        logger.error("Error in fetchAthleteActivities", { error: toMessage(error) });
+        res.status(500).json({ error: "Internal server error", message: toMessage(error) });
+      }
+    }
+);
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function toMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

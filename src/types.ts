@@ -1,6 +1,8 @@
 export type StravaObjectType = "activity" | "athlete";
 export type StravaAspectType = "create" | "update" | "delete";
 
+// ── Webhook payload types ──────────────────────────────────────────────────
+
 export interface StravaActivityUpdates {
   title?: string;
   type?: string;
@@ -36,6 +38,8 @@ export interface StravaAthleteEvent extends WebhookEvent {
   updates: StravaAthleteUpdates;
 }
 
+// ── Domain models ──────────────────────────────────────────────────────────
+
 export interface StravaAthlete {
   id: number;
   username: string;
@@ -67,16 +71,7 @@ export interface StravaActivity {
   fetchedAt: number;
 }
 
-export interface StravaTokens {
-  access_token: string;
-  refresh_token: string;
-  expires_at: number;
-}
-
-export interface ActivityResult {
-  activities: StravaActivity[];
-  refreshedTokens?: StravaTokens;
-}
+// ── Strava API raw shapes ──────────────────────────────────────────────────
 
 export interface StravaApiActivity {
   id: number;
@@ -89,4 +84,17 @@ export interface StravaApiActivity {
   average_speed: number;
   max_speed: number;
   total_elevation_gain: number;
+}
+
+// ── Token / result types ───────────────────────────────────────────────────
+
+export interface StravaTokens {
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+}
+
+export interface ActivityResult {
+  activities: StravaActivity[];
+  refreshedTokens?: StravaTokens;
 }
