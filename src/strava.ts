@@ -73,9 +73,34 @@ export class StravaClient {
   }
 
   private async getValidToken(
-      tokens: StravaTokens,
+    tokens: StravaTokens,
   ): Promise<{ accessToken: string; refreshedTokens?: StravaTokens }> {
-    return { accessToken: tokens.access_token };
+    // Strava access tokens expire after 6 hours. Refresh proactively when
+    // fewer than 5 minutes remain, giving us a safe margin.
+    const REFRESH_BUFFER_SECONDS = 5 * 60;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const isExpiredOrExpiringSoon =
+      tokens.expires_at - nowSeconds <= REFRESH_BUFFER_SECONDS;
+
+    if (!isExpiredOrExpiringSoon) {
+      logger.info("Strava access token is still valid", {
+        expiresIn: tokens.expires_at - nowSeconds,
+      });
+      return { accessToken: tokens.access_token };
+    }
+
+    logger.info("Strava access token expired or expiring soon – refreshing", {
+      expiresAt: tokens.expires_at,
+      nowSeconds,
+    });
+
+    const refreshedTokens = await this.refreshAccessToken(tokens.refresh_token);
+
+    logger.info("Strava access token refreshed successfully", {
+      newExpiresAt: refreshedTokens.expires_at,
+    });
+
+    return { accessToken: refreshedTokens.access_token, refreshedTokens };
   }
 
   // ── Mapping ──────────────────────────────────────────────────────────────
