@@ -1,9 +1,9 @@
-import * as logger from "firebase-functions/logger";
-import axios, {AxiosInstance} from "axios";
-import type {ActivityResult, StravaActivity, StravaApiActivity, StravaTokens} from "./types";
+import * as logger from 'firebase-functions/logger';
+import axios, { AxiosInstance } from 'axios';
+import type { ActivityResult, StravaActivity, StravaApiActivity, StravaTokens } from './types';
 
-const STRAVA_API_BASE = "https://www.strava.com/api/v3";
-const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
+const STRAVA_API_BASE = 'https://www.strava.com/api/v3';
+const STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token';
 
 const CLIENT_ID = process.env.STRAVA_CLIENT_ID!;
 const CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET!;
@@ -12,25 +12,25 @@ export class StravaClient {
   private readonly http: AxiosInstance;
 
   constructor() {
-    this.http = axios.create({baseURL: STRAVA_API_BASE, timeout: 10_000});
+    this.http = axios.create({ baseURL: STRAVA_API_BASE, timeout: 10_000 });
   }
 
   // ── Public API ───────────────────────────────────────────────────────────
 
   async getRecentActivities(tokens: StravaTokens, limit = 2): Promise<ActivityResult> {
     try {
-      const {accessToken, refreshedTokens} = await this.getValidToken(tokens);
+      const { accessToken, refreshedTokens } = await this.getValidToken(tokens);
 
-      const {data} = await this.http.get<StravaApiActivity[]>("/athlete/activities", {
-        params: {per_page: limit, page: 1},
+      const { data } = await this.http.get<StravaApiActivity[]>('/athlete/activities', {
+        params: { per_page: limit, page: 1 },
         headers: this.authHeader(accessToken),
       });
 
-      logger.info("Fetched activities from Strava", {count: data.length});
+      logger.info('Fetched activities from Strava', { count: data.length });
 
-      return {activities: data.map(this.mapActivity), refreshedTokens};
+      return { activities: data.map(this.mapActivity), refreshedTokens };
     } catch (error) {
-      logger.error("Failed to fetch Strava activities", {
+      logger.error('Failed to fetch Strava activities', {
         error: toMessage(error),
       });
       throw error;
@@ -39,15 +39,15 @@ export class StravaClient {
 
   async getAthleteDetails(tokens: StravaTokens): Promise<unknown> {
     try {
-      const {accessToken} = await this.getValidToken(tokens);
+      const { accessToken } = await this.getValidToken(tokens);
 
-      const {data} = await this.http.get("/athlete", {
+      const { data } = await this.http.get('/athlete', {
         headers: this.authHeader(accessToken),
       });
 
       return data;
     } catch (error) {
-      logger.error("Failed to fetch athlete details", {
+      logger.error('Failed to fetch athlete details', {
         error: toMessage(error),
       });
       throw error;
@@ -57,10 +57,10 @@ export class StravaClient {
   // ── Token management ─────────────────────────────────────────────────────
 
   async refreshAccessToken(refreshToken: string): Promise<StravaTokens> {
-    const {data} = await axios.post(STRAVA_TOKEN_URL, {
+    const { data } = await axios.post(STRAVA_TOKEN_URL, {
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
-      grant_type: "refresh_token",
+      grant_type: 'refresh_token',
       refresh_token: refreshToken,
     });
 
@@ -81,24 +81,24 @@ export class StravaClient {
     const isExpiredOrExpiringSoon = tokens.expires_at - nowSeconds <= REFRESH_BUFFER_SECONDS;
 
     if (!isExpiredOrExpiringSoon) {
-      logger.info("Strava access token is still valid", {
+      logger.info('Strava access token is still valid', {
         expiresIn: tokens.expires_at - nowSeconds,
       });
-      return {accessToken: tokens.access_token};
+      return { accessToken: tokens.access_token };
     }
 
-    logger.info("Strava access token expired or expiring soon – refreshing", {
+    logger.info('Strava access token expired or expiring soon – refreshing', {
       expiresAt: tokens.expires_at,
       nowSeconds,
     });
 
     const refreshedTokens = await this.refreshAccessToken(tokens.refresh_token);
 
-    logger.info("Strava access token refreshed successfully", {
+    logger.info('Strava access token refreshed successfully', {
       newExpiresAt: refreshedTokens.expires_at,
     });
 
-    return {accessToken: refreshedTokens.access_token, refreshedTokens};
+    return { accessToken: refreshedTokens.access_token, refreshedTokens };
   }
 
   // ── Mapping ──────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ export class StravaClient {
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   private authHeader(token: string) {
-    return {Authorization: `Bearer ${token}`};
+    return { Authorization: `Bearer ${token}` };
   }
 }
 

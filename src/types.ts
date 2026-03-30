@@ -1,16 +1,16 @@
-export type StravaObjectType = "activity" | "athlete";
-export type StravaAspectType = "create" | "update" | "delete";
+export type StravaObjectType = 'activity' | 'athlete';
+export type StravaAspectType = 'create' | 'update' | 'delete';
 
 // ── Webhook payload types ──────────────────────────────────────────────────
 
 export interface StravaActivityUpdates {
   title?: string;
   type?: string;
-  private?: "true" | "false";
+  private?: 'true' | 'false';
 }
 
 export interface StravaAthleteUpdates {
-  authorized: "false";
+  authorized: 'false';
 }
 
 export type StravaWebhookUpdates =
@@ -29,12 +29,12 @@ export interface WebhookEvent {
 }
 
 export interface StravaActivityEvent extends WebhookEvent {
-  object_type: "activity";
+  object_type: 'activity';
   updates: StravaActivityUpdates;
 }
 
 export interface StravaAthleteEvent extends WebhookEvent {
-  object_type: "athlete";
+  object_type: 'athlete';
   updates: StravaAthleteUpdates;
 }
 
