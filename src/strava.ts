@@ -55,13 +55,16 @@ export class StravaClient {
   }
 
   // ── Token management ─────────────────────────────────────────────────────
-
   async refreshAccessToken(refreshToken: string): Promise<StravaTokens> {
     const {data} = await axios.post(STRAVA_TOKEN_URL, {
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       grant_type: "refresh_token",
       refresh_token: refreshToken,
+    });
+
+    logger.info("Access token refreshed", {
+      expiresAt: data.expires_at,
     });
 
     return {
@@ -77,8 +80,8 @@ export class StravaClient {
     const expiresAt = Number(tokens.expires_at);
     const nowSeconds = Math.floor(Date.now() / 1000);
     const REFRESH_BUFFER_SECONDS = 5 * 60;
-    const needsRefresh
-      = !expiresAt || !tokens.access_token || expiresAt - nowSeconds <= REFRESH_BUFFER_SECONDS;
+    const needsRefresh =
+      !expiresAt || !tokens.access_token || expiresAt - nowSeconds <= REFRESH_BUFFER_SECONDS;
 
     if (!needsRefresh) {
       logger.info("Strava access token is still valid", {
@@ -89,11 +92,11 @@ export class StravaClient {
     }
 
     logger.info("Strava access token needs refresh", {
-      reason: !tokens.access_token ?
-        "missing_access_token" :
-        !expiresAt ?
-          "invalid_expires_at" :
-          "expired_or_expiring_soon",
+      reason: !tokens.access_token
+        ? "missing_access_token"
+        : !expiresAt
+          ? "invalid_expires_at"
+          : "expired_or_expiring_soon",
       expiresAt,
       nowSeconds,
       secondsRemaining: expiresAt ? expiresAt - nowSeconds : null,

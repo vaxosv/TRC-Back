@@ -104,6 +104,20 @@ export class DatabaseService {
     }
   }
 
+  async deleteActivity(athleteId: number, activityId: number): Promise<void> {
+    try {
+      await this.activitiesRef(athleteId).child(activityId.toString()).remove();
+      logger.info("Activity deleted", {athleteId, activityId});
+    } catch (error) {
+      logger.error("Failed to delete activity", {
+        athleteId,
+        activityId,
+        error: toMessage(error),
+      });
+      throw error;
+    }
+  }
+
   // ── Internals ────────────────────────────────────────────────────────────
 
   private get db(): admin.database.Database {

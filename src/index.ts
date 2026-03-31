@@ -18,12 +18,12 @@ const RECENT_ACTIVITY_LIMIT = 2;
 class WebhookHandler {
   async handle(req: Request, res: Response): Promise<void> {
     switch (req.method) {
-    case "GET":
-      return this.handleVerification(req, res);
-    case "POST":
-      return this.handleEvent(req, res);
-    default:
-      res.status(405).json({error: "Method not allowed"});
+      case "GET":
+        return this.handleVerification(req, res);
+      case "POST":
+        return this.handleEvent(req, res);
+      default:
+        res.status(405).json({error: "Method not allowed"});
     }
   }
 
@@ -47,38 +47,59 @@ class WebhookHandler {
   // ── Incoming webhook event ─────────────────────────────────────────────
 
   private async handleEvent(req: Request, res: Response): Promise<void> {
-    try {
-      const event = req.body as WebhookEvent;
+    res.status(200).json({status: "ok"});
 
-      logger.info("Webhook event received", {
+    const event = req.body as WebhookEvent;
+
+    logger.info("Webhook event received", {
+      objectType: event.object_type,
+      aspectType: event.aspect_type,
+      objectId: event.object_id,
+      ownerId: event.owner_id,
+    });
+
+    try {
+      if (event.object_type === "athlete") {
+        return;
+      }
+
+      if (event.object_type === "activity") {
+        await this.handleActivityEvent(event);
+        return;
+      }
+
+      logger.warn("Unknown webhook object_type", {objectType: event.object_type});
+    } catch (error) {
+      // Response already sent — just log the failure
+      logger.error("Error processing webhook event", {
+        error: toMessage(error),
         objectType: event.object_type,
         aspectType: event.aspect_type,
         objectId: event.object_id,
         ownerId: event.owner_id,
       });
+    }
+  }
 
-      if (event.object_type === "athlete") {
-        logger.info("Athlete event — skipping", {
-          aspectType: event.aspect_type,
-        });
-        res.status(200).json({status: "ok"});
-        return;
-      }
+  // ── Activity event routing ─────────────────────────────────────────────
 
-      const {activities} = await this.fetchAndSaveActivities(event.owner_id);
+  private async handleActivityEvent(event: WebhookEvent): Promise<void> {
+    const {aspect_type, object_id: activityId, owner_id: athleteId} = event;
 
-      if (activities.length === 0) {
-        res.status(200).json({status: "ok", message: "No activities to save"});
-        return;
-      }
+    switch (aspect_type) {
+      case "create":
+      case "update":
+        await this.fetchAndSaveActivities(athleteId);
+        logger.info(`Activity ${aspect_type} handled`, {activityId, athleteId});
+        break;
 
-      res.status(200).json({status: "ok", activitiesSaved: activities.length, activities});
-    } catch (error) {
-      logger.error("Error processing webhook", {
-        error: toMessage(error),
-        body: req.body,
-      });
-      res.status(500).json({error: "Internal server error", message: toMessage(error)});
+      case "delete":
+        await dbService.deleteActivity(athleteId, activityId);
+        logger.info("Activity deleted", {activityId, athleteId});
+        break;
+
+      default:
+        logger.warn("Unknown activity aspect_type", {aspect_type, activityId});
     }
   }
 
