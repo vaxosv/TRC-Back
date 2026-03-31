@@ -68,48 +68,48 @@ export class StravaClient {
     });
 
     return {
-      access_token: data.access_token,
-      refresh_token: data.refresh_token,
-      expires_at: data.expires_at,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: data.expires_at,
     };
   }
 
   private async getValidToken(
     tokens: StravaTokens
   ): Promise<{accessToken: string; refreshedTokens?: StravaTokens}> {
-    const expiresAt = Number(tokens.expires_at);
+    const expiresAt = Number(tokens.expiresAt);
     const nowSeconds = Math.floor(Date.now() / 1000);
     const REFRESH_BUFFER_SECONDS = 5 * 60;
-    const needsRefresh =
-      !expiresAt || !tokens.access_token || expiresAt - nowSeconds <= REFRESH_BUFFER_SECONDS;
+    const needsRefresh
+      = !expiresAt || !tokens.accessToken || expiresAt - nowSeconds <= REFRESH_BUFFER_SECONDS;
 
     if (!needsRefresh) {
       logger.info("Strava access token is still valid", {
         expiresIn: expiresAt - nowSeconds,
         expiresAt,
       });
-      return {accessToken: tokens.access_token};
+      return {accessToken: tokens.accessToken};
     }
 
     logger.info("Strava access token needs refresh", {
-      reason: !tokens.access_token
-        ? "missing_access_token"
-        : !expiresAt
-          ? "invalid_expires_at"
-          : "expired_or_expiring_soon",
+      reason: !tokens.accessToken ?
+        "missing_access_token" :
+        !expiresAt ?
+          "invalid_expires_at" :
+          "expired_or_expiring_soon",
       expiresAt,
       nowSeconds,
       secondsRemaining: expiresAt ? expiresAt - nowSeconds : null,
     });
 
-    const refreshedTokens = await this.refreshAccessToken(tokens.refresh_token);
+    const refreshedTokens = await this.refreshAccessToken(tokens.refreshToken);
 
     logger.info("Strava access token refreshed successfully", {
-      newExpiresAt: refreshedTokens.expires_at,
-      expiresIn: refreshedTokens.expires_at - nowSeconds,
+      newExpiresAt: refreshedTokens.expiresAt,
+      expiresIn: refreshedTokens.expiresAt - nowSeconds,
     });
 
-    return {accessToken: refreshedTokens.access_token, refreshedTokens};
+    return {accessToken: refreshedTokens.accessToken, refreshedTokens};
   }
 
   // ── Mapping ──────────────────────────────────────────────────────────────

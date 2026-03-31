@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
-import type {StravaActivity, StravaAthlete} from "./types";
+import type {StravaActivity, StravaTokens, StravaUserData, UserData} from "./types";
 
 /**
  * Thin wrapper around Firebase Realtime Database.
@@ -9,28 +9,32 @@ import type {StravaActivity, StravaAthlete} from "./types";
 export class DatabaseService {
   // ── Paths ────────────────────────────────────────────────────────────────
 
-  private athleteRef(athleteId: number) {
-    return this.db.ref(`athletes/${athleteId}`);
+  private stravaUserRef(athleteId: number) {
+    return this.db.ref(`stravaUsers/${athleteId}`);
+  }
+
+  private userRef(uid: string) {
+    return this.db.ref(`users/${uid}`);
   }
 
   private activitiesRef(athleteId: number) {
     return this.db.ref(`activities/${athleteId}`);
   }
 
-  // ── Athlete queries ──────────────────────────────────────────────────────
+  // ── User queries ─────────────────────────────────────────────────────────
 
-  async getAthlete(athleteId: number): Promise<StravaAthlete | null> {
+  async getStravaUser(athleteId: number): Promise<StravaUserData | null> {
     try {
-      const snapshot = await this.athleteRef(athleteId).once("value");
+      const snapshot = await this.stravaUserRef(athleteId).once("value");
 
       if (!snapshot.exists()) {
-        logger.warn("Athlete not found", {athleteId});
+        logger.warn("Strava user not found", {athleteId});
         return null;
       }
 
-      return snapshot.val() as StravaAthlete;
+      return snapshot.val() as StravaUserData;
     } catch (error) {
-      logger.error("Failed to read athlete", {
+      logger.error("Failed to read Strava user", {
         athleteId,
         error: toMessage(error),
       });
@@ -38,18 +42,37 @@ export class DatabaseService {
     }
   }
 
-  async getAllAthletes(): Promise<Record<number, StravaAthlete>> {
+  async getUser(uid: string): Promise<UserData | null> {
     try {
-      const snapshot = await this.db.ref("athletes").once("value");
+      const snapshot = await this.userRef(uid).once("value");
 
       if (!snapshot.exists()) {
-        logger.warn("No athletes found in database");
+        logger.warn("App user not found", {uid});
+        return null;
+      }
+
+      return snapshot.val() as UserData;
+    } catch (error) {
+      logger.error("Failed to read app user", {
+        uid,
+        error: toMessage(error),
+      });
+      throw error;
+    }
+  }
+
+  async getAllStravaUsers(): Promise<Record<number, StravaUserData>> {
+    try {
+      const snapshot = await this.db.ref("stravaUsers").once("value");
+
+      if (!snapshot.exists()) {
+        logger.warn("No Strava users found in database");
         return {};
       }
 
-      return snapshot.val() as Record<number, StravaAthlete>;
+      return snapshot.val() as Record<number, StravaUserData>;
     } catch (error) {
-      logger.error("Failed to read athletes", {error: toMessage(error)});
+      logger.error("Failed to read Strava users", {error: toMessage(error)});
       throw error;
     }
   }
@@ -72,15 +95,16 @@ export class DatabaseService {
     }
   }
 
-  async updateAthleteTokens(
-    athleteId: number,
-    tokens: Pick<StravaAthlete, "access_token" | "refresh_token" | "expires_at">
-  ): Promise<void> {
+  async updateStravaTokens(athleteId: number, tokens: StravaTokens): Promise<void> {
     try {
-      await this.athleteRef(athleteId).update(tokens);
-      logger.info("Athlete tokens updated", {athleteId});
+      const updateData = {
+        ...tokens,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.stravaUserRef(athleteId).update(updateData);
+      logger.info("Strava tokens updated", {athleteId});
     } catch (error) {
-      logger.error("Failed to update athlete tokens", {
+      logger.error("Failed to update Strava tokens", {
         athleteId,
         error: toMessage(error),
       });

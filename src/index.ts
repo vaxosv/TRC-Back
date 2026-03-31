@@ -18,12 +18,12 @@ const RECENT_ACTIVITY_LIMIT = 2;
 class WebhookHandler {
   async handle(req: Request, res: Response): Promise<void> {
     switch (req.method) {
-      case "GET":
-        return this.handleVerification(req, res);
-      case "POST":
-        return this.handleEvent(req, res);
-      default:
-        res.status(405).json({error: "Method not allowed"});
+    case "GET":
+      return this.handleVerification(req, res);
+    case "POST":
+      return this.handleEvent(req, res);
+    default:
+      res.status(405).json({error: "Method not allowed"});
     }
   }
 
@@ -84,45 +84,46 @@ class WebhookHandler {
   // ── Activity event routing ─────────────────────────────────────────────
 
   private async handleActivityEvent(event: WebhookEvent): Promise<void> {
-    const {aspect_type, object_id: activityId, owner_id: athleteId} = event;
+    const aspectType = event.aspect_type;
+    const {object_id: activityId, owner_id: athleteId} = event;
 
-    switch (aspect_type) {
-      case "create":
-      case "update":
-        await this.fetchAndSaveActivities(athleteId);
-        logger.info(`Activity ${aspect_type} handled`, {activityId, athleteId});
-        break;
+    switch (aspectType) {
+    case "create":
+    case "update":
+      await this.fetchAndSaveActivities(athleteId);
+      logger.info(`Activity ${aspectType} handled`, {activityId, athleteId});
+      break;
 
-      case "delete":
-        await dbService.deleteActivity(athleteId, activityId);
-        logger.info("Activity deleted", {activityId, athleteId});
-        break;
+    case "delete":
+      await dbService.deleteActivity(athleteId, activityId);
+      logger.info("Activity deleted", {activityId, athleteId});
+      break;
 
-      default:
-        logger.warn("Unknown activity aspect_type", {aspect_type, activityId});
+    default:
+      logger.warn("Unknown activity aspect_type", {aspectType, activityId});
     }
   }
 
   // ── Shared logic ───────────────────────────────────────────────────────
 
   async fetchAndSaveActivities(athleteId: number) {
-    const athlete = await dbService.getAthlete(athleteId);
+    const stravaUser = await dbService.getStravaUser(athleteId);
 
-    if (!athlete) {
-      logger.error("Athlete not found", {athleteId});
+    if (!stravaUser) {
+      logger.error("Strava user not found", {athleteId});
       throw new AthleteNotFoundError(athleteId);
     }
 
-    logger.info("Athlete found", {
+    logger.info("Strava user found", {
       athleteId,
-      name: `${athlete.firstname} ${athlete.lastname}`,
+      stravaUserId: stravaUser.stravaUserId,
     });
 
     const {activities, refreshedTokens} = await stravaClient.getRecentActivities(
       {
-        access_token: athlete.access_token,
-        refresh_token: athlete.refresh_token,
-        expires_at: athlete.expires_at,
+        accessToken: stravaUser.accessToken,
+        refreshToken: stravaUser.refreshToken,
+        expiresAt: stravaUser.expiresAt,
       },
       RECENT_ACTIVITY_LIMIT
     );
@@ -134,7 +135,7 @@ class WebhookHandler {
 
     // Persist refreshed tokens when Strava rotated them
     if (refreshedTokens) {
-      await dbService.updateAthleteTokens(athleteId, refreshedTokens);
+      await dbService.updateStravaTokens(athleteId, refreshedTokens);
       logger.info("Tokens refreshed and persisted", {athleteId});
     }
 

@@ -18,6 +18,7 @@ export type StravaWebhookUpdates =
   | StravaAthleteUpdates
   | Record<string, unknown>;
 
+/* eslint-disable camelcase */
 export interface WebhookEvent {
   object_type: StravaObjectType;
   object_id: number;
@@ -27,6 +28,7 @@ export interface WebhookEvent {
   subscription_id: number;
   event_time: number;
 }
+/* eslint-enable camelcase */
 
 export interface StravaActivityEvent extends WebhookEvent {
   object_type: "activity";
@@ -40,20 +42,27 @@ export interface StravaAthleteEvent extends WebhookEvent {
 
 // ── Domain models ──────────────────────────────────────────────────────────
 
-export interface StravaAthlete {
-  id: number;
-  username: string;
-  firstname: string;
-  lastname: string;
-  profile: string;
-  city: string;
-  country: string;
-  client_id: string;
-  client_secret: string;
-  access_token: string;
-  refresh_token: string;
-  expires_at: number;
+export interface StravaUserData {
+  accessToken: string;
+  athleteId: number;
+  expiresAt: number;
+  googleUserId: string;
+  refreshToken: string;
+  tokenType: string;
+  updatedAt: string;
   [key: string]: unknown;
+}
+
+export interface UserData {
+  uid: string;
+  displayName?: string;
+  email?: string;
+  emailVerified?: boolean;
+  googleUid?: string;
+  lastLogin?: string;
+  photoURL?: string;
+  stravaAthleteId?: number;
+  stravaLinkedAt?: string;
 }
 
 export interface StravaActivity {
@@ -89,9 +98,9 @@ export interface StravaApiActivity {
 // ── Token / result types ───────────────────────────────────────────────────
 
 export interface StravaTokens {
-  access_token: string;
-  refresh_token: string;
-  expires_at: number;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
 }
 
 export interface ActivityResult {
