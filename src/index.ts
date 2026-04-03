@@ -240,6 +240,18 @@ export const fetchActivitiesByGoogleUId = onRequest({region: REGION}, async (req
       return;
     }
 
+    let activityQuantity = FRONTEND_ACTIVITY_LIMIT;
+    if (req.query.activityQuantity) {
+      const parsed = parseInt(req.query.activityQuantity as string, 10);
+      if (isNaN(parsed) || parsed < 1) {
+        res.status(400).json({
+          error: "activityQuantity must be a positive integer",
+        });
+        return;
+      }
+      activityQuantity = parsed;
+    }
+
     const user = await dbService.getUserByGoogleUid(googleUId);
 
     if (!user || !user.stravaAthleteId) {
@@ -250,7 +262,10 @@ export const fetchActivitiesByGoogleUId = onRequest({region: REGION}, async (req
     const stravaUser = await dbService.getStravaUser(user.stravaAthleteId);
 
     if (!stravaUser) {
-      res.status(404).json({error: "stravaUsers object not found", stravaAthleteId: user.stravaAthleteId});
+      res.status(404).json({
+        error: "stravaUsers object not found",
+        stravaAthleteId: user.stravaAthleteId,
+      });
       return;
     }
 
@@ -260,7 +275,7 @@ export const fetchActivitiesByGoogleUId = onRequest({region: REGION}, async (req
         refreshToken: stravaUser.refreshToken,
         expiresAt: stravaUser.expiresAt,
       },
-      FRONTEND_ACTIVITY_LIMIT
+      activityQuantity
     );
 
     if (refreshedTokens) {
