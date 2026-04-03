@@ -96,6 +96,51 @@ export class DatabaseService {
     }
   }
 
+  async getUserByGoogleUid(googleUid: string): Promise<UserData | null> {
+    try {
+      const normalizedGoogleUid = googleUid.trim();
+
+      if (!normalizedGoogleUid) {
+        logger.warn("Empty googleUid received for user lookup");
+        return null;
+      }
+
+      // Primary path: some datasets store googleUid as the users/{key} node key.
+      const directUser = await this.getUser(normalizedGoogleUid);
+      if (directUser) {
+        logger.info("App user resolved by users node key", {googleUid: normalizedGoogleUid});
+        return directUser;
+      }
+
+      // Fallback path: query users by child field googleUid.
+      const snapshot = await this.db
+        .ref("users")
+        .orderByChild("googleUid")
+        .equalTo(normalizedGoogleUid)
+        .limitToFirst(1)
+        .once("value");
+
+      if (!snapshot.exists()) {
+        logger.warn("App user not found by googleUid", {googleUid: normalizedGoogleUid});
+        return null;
+      }
+
+      const users = snapshot.val() as Record<string, UserData>;
+      const firstKey = Object.keys(users)[0];
+      logger.info("App user resolved by users.googleUid query", {
+        googleUid: normalizedGoogleUid,
+        userKey: firstKey,
+      });
+      return users[firstKey] ?? null;
+    } catch (error) {
+      logger.error("Failed to read app user by googleUid", {
+        googleUid,
+        error: toMessage(error),
+      });
+      throw error;
+    }
+  }
+
   async getAllStravaUsers(): Promise<Record<number, StravaUserData>> {
     try {
       const snapshot = await this.db.ref("stravaUsers").once("value");

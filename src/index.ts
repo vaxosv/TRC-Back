@@ -1,7 +1,5 @@
 import * as admin from "firebase-admin";
 import {
-  HttpsError,
-  onCall,
   onRequest,
   Request,
 } from "firebase-functions/v2/https";
@@ -18,9 +16,11 @@ export const STRAVA_WEBHOOK_TOKEN = "strava_webhook_token";
 
 const REGION = "europe-north1" as const;
 const RECENT_ACTIVITY_LIMIT = 2;
+const FRONTEND_ACTIVITY_LIMIT = 10;
 
 const STRAVA_CLIENT_ID_SECRET = defineSecret("STRAVA_CLIENT_ID");
 const STRAVA_CLIENT_SECRET_SECRET = defineSecret("STRAVA_CLIENT_SECRET");
+const ALLOWED_ORIGINS = new Set(["http://localhost:4200"]);
 
 // ── Webhook handler class ──────────────────────────────────────────────────
 
@@ -171,44 +171,116 @@ export const stravaWebhookHandlerNew = onRequest({region: REGION}, (req, res) =>
   webhookHandler.handle(req, res)
 );
 
-export const exchangeStravaToken = onCall(
+export const exchangeStravaTokenHTTP = onRequest(
   {
     region: REGION,
     secrets: [STRAVA_CLIENT_ID_SECRET, STRAVA_CLIENT_SECRET_SECRET],
   },
-  async (request) => {
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "Must be signed in.");
+  async (req, res) => {
+    const origin = req.headers.origin;
+
+    if (origin && ALLOWED_ORIGINS.has(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
     }
 
-    const uid = request.auth.uid;
-    const code = typeof request.data?.code === "string" ? request.data.code.trim() : "";
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 
-    if (!code) {
-      throw new HttpsError("invalid-argument", "Missing Strava authorization code.");
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
     }
 
-    const tokenData = await stravaClient.exchangeAuthCode(
-      code,
-      STRAVA_CLIENT_ID_SECRET.value(),
-      STRAVA_CLIENT_SECRET_SECRET.value()
-    );
+    if (req.method !== "POST") {
+      res.status(405).json({error: "Method not allowed"});
+      return;
+    }
 
-    const athlete = await stravaClient.getAthleteByAccessToken(tokenData.accessToken);
-    const athleteId = athlete.id;
+    if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+      res.status(403).json({error: "Origin not allowed"});
+      return;
+    }
 
-    await dbService.linkUserWithStravaAuth({
-      uid,
-      athleteId,
-      accessToken: tokenData.accessToken,
-      refreshToken: tokenData.refreshToken,
-      expiresAt: tokenData.expiresAt,
-      tokenType: tokenData.tokenType,
-    });
+    try {
+      const authHeader = req.header("Authorization") || "";
+      const bearerPrefix = "Bearer ";
 
-    return {athleteId};
+      if (!authHeader.startsWith(bearerPrefix)) {
+        res.status(401).json({error: "Missing or invalid Authorization header"});
+        return;
+      }
+
+      const idToken = authHeader.slice(bearerPrefix.length).trim();
+      const decoded = await admin.auth().verifyIdToken(idToken);
+      const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
+
+      if (!code) {
+        res.status(400).json({error: "Missing Strava authorization code"});
+        return;
+      }
+
+      const athleteId = await exchangeStravaTokenForUid(decoded.uid, code);
+      res.status(200).json({athleteId});
+    } catch (error) {
+      logger.error("Error in exchangeStravaTokenHttp", {
+        error: toMessage(error),
+      });
+      res.status(500).json({error: "Internal server error", message: toMessage(error)});
+    }
   }
 );
+
+export const fetchActivitiesByGoogleUId = onRequest({region: REGION}, async (req, res) => {
+  try {
+    const googleUId = req.query.googleUId;
+
+    if (typeof googleUId !== "string" || !googleUId.trim()) {
+      res.status(400).json({error: "Missing or invalid query param: googleUId"});
+      return;
+    }
+
+    const user = await dbService.getUserByGoogleUid(googleUId);
+
+    if (!user || !user.stravaAthleteId) {
+      res.status(404).json({error: "User not found or stravaAthleteId is missing"});
+      return;
+    }
+
+    const stravaUser = await dbService.getStravaUser(user.stravaAthleteId);
+
+    if (!stravaUser) {
+      res.status(404).json({error: "stravaUsers object not found", stravaAthleteId: user.stravaAthleteId});
+      return;
+    }
+
+    const {activities, refreshedTokens} = await stravaClient.getRecentActivities(
+      {
+        accessToken: stravaUser.accessToken,
+        refreshToken: stravaUser.refreshToken,
+        expiresAt: stravaUser.expiresAt,
+      },
+      FRONTEND_ACTIVITY_LIMIT
+    );
+
+    if (refreshedTokens) {
+      await dbService.updateStravaTokens(user.stravaAthleteId, refreshedTokens);
+    }
+
+    res.status(200).json({
+      googleUId,
+      stravaAthleteId: user.stravaAthleteId,
+      count: activities.length,
+      activities,
+    });
+  } catch (error) {
+    logger.error("Error in fetchActivitiesByGoogleUId", {
+      error: toMessage(error),
+    });
+    res.status(500).json({error: "Internal server error", message: toMessage(error)});
+  }
+});
+
 
 export const fetchAthleteActivitiesNew = onRequest({region: REGION}, async (req, res) => {
   try {
@@ -239,4 +311,26 @@ export const fetchAthleteActivitiesNew = onRequest({region: REGION}, async (req,
 
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function exchangeStravaTokenForUid(uid: string, code: string): Promise<number> {
+  const tokenData = await stravaClient.exchangeAuthCode(
+    code,
+    STRAVA_CLIENT_ID_SECRET.value(),
+    STRAVA_CLIENT_SECRET_SECRET.value()
+  );
+
+  const athlete = await stravaClient.getAthleteByAccessToken(tokenData.accessToken);
+  const athleteId = athlete.id;
+
+  await dbService.linkUserWithStravaAuth({
+    uid,
+    athleteId,
+    accessToken: tokenData.accessToken,
+    refreshToken: tokenData.refreshToken,
+    expiresAt: tokenData.expiresAt,
+    tokenType: tokenData.tokenType,
+  });
+
+  return athleteId;
 }
