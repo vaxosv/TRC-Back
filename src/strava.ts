@@ -54,6 +54,61 @@ export class StravaClient {
     }
   }
 
+  async exchangeAuthCode(
+    code: string,
+    clientId: string,
+    clientSecret: string
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string | null;
+    expiresAt: number | null;
+    tokenType: string;
+  }> {
+    try {
+      const {data} = await axios.post(STRAVA_TOKEN_URL, {
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        grant_type: "authorization_code",
+      });
+
+      if (!data.access_token) {
+        throw new Error("Strava token response is missing access token");
+      }
+
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token ?? null,
+        expiresAt: data.expires_at ?? null,
+        tokenType: data.token_type ?? "Bearer",
+      };
+    } catch (error) {
+      logger.error("Failed to exchange Strava authorization code", {
+        error: toMessage(error),
+      });
+      throw error;
+    }
+  }
+
+  async getAthleteByAccessToken(accessToken: string): Promise<{id: number}> {
+    try {
+      const {data} = await this.http.get<{id?: number}>("/athlete", {
+        headers: this.authHeader(accessToken),
+      });
+
+      if (!data.id) {
+        throw new Error("Strava athlete id is missing");
+      }
+
+      return {id: data.id};
+    } catch (error) {
+      logger.error("Failed to fetch Strava athlete profile", {
+        error: toMessage(error),
+      });
+      throw error;
+    }
+  }
+
   // ── Token management ─────────────────────────────────────────────────────
   async refreshAccessToken(refreshToken: string): Promise<StravaTokens> {
     const {data} = await axios.post(STRAVA_TOKEN_URL, {

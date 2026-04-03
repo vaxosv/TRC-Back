@@ -1,5 +1,11 @@
 import * as admin from "firebase-admin";
-import {onRequest, Request} from "firebase-functions/v2/https";
+import {
+  HttpsError,
+  onCall,
+  onRequest,
+  Request,
+} from "firebase-functions/v2/https";
+import {defineSecret} from "firebase-functions/params";
 import type {Response} from "express";
 import * as logger from "firebase-functions/logger";
 import {stravaClient} from "./strava";
@@ -12,6 +18,9 @@ export const STRAVA_WEBHOOK_TOKEN = "strava_webhook_token";
 
 const REGION = "europe-north1" as const;
 const RECENT_ACTIVITY_LIMIT = 2;
+
+const STRAVA_CLIENT_ID_SECRET = defineSecret("STRAVA_CLIENT_ID");
+const STRAVA_CLIENT_SECRET_SECRET = defineSecret("STRAVA_CLIENT_SECRET");
 
 // ── Webhook handler class ──────────────────────────────────────────────────
 
@@ -160,6 +169,45 @@ const webhookHandler = new WebhookHandler();
 
 export const stravaWebhookHandlerNew = onRequest({region: REGION}, (req, res) =>
   webhookHandler.handle(req, res)
+);
+
+export const exchangeStravaToken = onCall(
+  {
+    region: REGION,
+    secrets: [STRAVA_CLIENT_ID_SECRET, STRAVA_CLIENT_SECRET_SECRET],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Must be signed in.");
+    }
+
+    const uid = request.auth.uid;
+    const code = typeof request.data?.code === "string" ? request.data.code.trim() : "";
+
+    if (!code) {
+      throw new HttpsError("invalid-argument", "Missing Strava authorization code.");
+    }
+
+    const tokenData = await stravaClient.exchangeAuthCode(
+      code,
+      STRAVA_CLIENT_ID_SECRET.value(),
+      STRAVA_CLIENT_SECRET_SECRET.value()
+    );
+
+    const athlete = await stravaClient.getAthleteByAccessToken(tokenData.accessToken);
+    const athleteId = athlete.id;
+
+    await dbService.linkUserWithStravaAuth({
+      uid,
+      athleteId,
+      accessToken: tokenData.accessToken,
+      refreshToken: tokenData.refreshToken,
+      expiresAt: tokenData.expiresAt,
+      tokenType: tokenData.tokenType,
+    });
+
+    return {athleteId};
+  }
 );
 
 export const fetchAthleteActivitiesNew = onRequest({region: REGION}, async (req, res) => {

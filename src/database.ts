@@ -61,6 +61,41 @@ export class DatabaseService {
     }
   }
 
+  async linkUserWithStravaAuth(params: {
+    uid: string;
+    athleteId: number;
+    accessToken: string;
+    refreshToken: string | null;
+    expiresAt: number | null;
+    tokenType: string;
+  }): Promise<void> {
+    const {uid, athleteId, accessToken, refreshToken, expiresAt, tokenType} = params;
+
+    try {
+      const nowIso = new Date().toISOString();
+      await this.db.ref().update({
+        [`users/${uid}/stravaAthleteId`]: athleteId,
+        [`users/${uid}/stravaLinkedAt`]: nowIso,
+        [`stravaUsers/${athleteId}/googleUserId`]: uid,
+        [`stravaUsers/${athleteId}/athleteId`]: athleteId,
+        [`stravaUsers/${athleteId}/accessToken`]: accessToken,
+        [`stravaUsers/${athleteId}/refreshToken`]: refreshToken,
+        [`stravaUsers/${athleteId}/expiresAt`]: expiresAt,
+        [`stravaUsers/${athleteId}/tokenType`]: tokenType,
+        [`stravaUsers/${athleteId}/updatedAt`]: nowIso,
+      });
+
+      logger.info("Linked user with Strava auth", {uid, athleteId});
+    } catch (error) {
+      logger.error("Failed to link user with Strava auth", {
+        uid,
+        athleteId,
+        error: toMessage(error),
+      });
+      throw error;
+    }
+  }
+
   async getAllStravaUsers(): Promise<Record<number, StravaUserData>> {
     try {
       const snapshot = await this.db.ref("stravaUsers").once("value");
