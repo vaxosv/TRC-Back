@@ -1,25 +1,36 @@
 import * as logger from "firebase-functions/logger";
 import axios, {AxiosInstance} from "axios";
-import type {ActivityResult, StravaActivity, StravaApiActivity, StravaTokens} from "./types";
+import type {
+  ActivityResult,
+  StravaActivity,
+  StravaApiActivity,
+  StravaTokens,
+} from "../models";
+import {toMessage} from "../utils";
+import {StravaApiError} from "../errors";
 
 const STRAVA_API_BASE = "https://www.strava.com/api/v3";
 const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
 
-const CLIENT_ID = process.env.STRAVA_CLIENT_ID!;
-const CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET!;
-
-export class StravaClient {
+export class StravaService {
   private readonly http: AxiosInstance;
 
   constructor() {
     this.http = axios.create({baseURL: STRAVA_API_BASE, timeout: 10_000});
   }
 
-  // ── Public API ───────────────────────────────────────────────────────────
-
-  async getRecentActivities(tokens: StravaTokens, limit = 2): Promise<ActivityResult> {
+  async getRecentActivities(
+    tokens: StravaTokens,
+    limit = 2,
+    clientId: string,
+    clientSecret: string
+  ): Promise<ActivityResult> {
     try {
-      const {accessToken, refreshedTokens} = await this.getValidToken(tokens);
+      const {accessToken, refreshedTokens} = await this.getValidToken(
+        tokens,
+        clientId,
+        clientSecret
+      );
 
       const {data} = await this.http.get<StravaApiActivity[]>("/athlete/activities", {
         params: {per_page: limit, page: 1},
@@ -37,9 +48,13 @@ export class StravaClient {
     }
   }
 
-  async getAthleteDetails(tokens: StravaTokens): Promise<unknown> {
+  async getAthleteDetails(
+    tokens: StravaTokens,
+    clientId: string,
+    clientSecret: string
+  ): Promise<unknown> {
     try {
-      const {accessToken} = await this.getValidToken(tokens);
+      const {accessToken} = await this.getValidToken(tokens, clientId, clientSecret);
 
       const {data} = await this.http.get("/athlete", {
         headers: this.authHeader(accessToken),
@@ -73,7 +88,7 @@ export class StravaClient {
       });
 
       if (!data.access_token) {
-        throw new Error("Strava token response is missing access token");
+        throw new StravaApiError("Strava token response is missing access token");
       }
 
       return {
@@ -83,10 +98,11 @@ export class StravaClient {
         tokenType: data.token_type ?? "Bearer",
       };
     } catch (error) {
+      if (error instanceof StravaApiError) throw error;
       logger.error("Failed to exchange Strava authorization code", {
         error: toMessage(error),
       });
-      throw error;
+      throw new StravaApiError(`Token exchange failed: ${toMessage(error)}`, error);
     }
   }
 
@@ -97,23 +113,27 @@ export class StravaClient {
       });
 
       if (!data.id) {
-        throw new Error("Strava athlete id is missing");
+        throw new StravaApiError("Strava athlete id is missing");
       }
 
       return {id: data.id};
     } catch (error) {
+      if (error instanceof StravaApiError) throw error;
       logger.error("Failed to fetch Strava athlete profile", {
         error: toMessage(error),
       });
-      throw error;
+      throw new StravaApiError(`Failed to fetch athlete: ${toMessage(error)}`, error);
     }
   }
 
-  // ── Token management ─────────────────────────────────────────────────────
-  async refreshAccessToken(refreshToken: string): Promise<StravaTokens> {
+  async refreshAccessToken(
+    refreshToken: string,
+    clientId: string,
+    clientSecret: string
+  ): Promise<StravaTokens> {
     const {data} = await axios.post(STRAVA_TOKEN_URL, {
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: clientSecret,
       grant_type: "refresh_token",
       refresh_token: refreshToken,
     });
@@ -130,13 +150,17 @@ export class StravaClient {
   }
 
   private async getValidToken(
-    tokens: StravaTokens
+    tokens: StravaTokens,
+    clientId: string,
+    clientSecret: string
   ): Promise<{accessToken: string; refreshedTokens?: StravaTokens}> {
     const expiresAt = Number(tokens.expiresAt);
     const nowSeconds = Math.floor(Date.now() / 1000);
     const REFRESH_BUFFER_SECONDS = 5 * 60;
     const needsRefresh
-      = !expiresAt || !tokens.accessToken || expiresAt - nowSeconds <= REFRESH_BUFFER_SECONDS;
+      = !expiresAt
+      || !tokens.accessToken
+      || expiresAt - nowSeconds <= REFRESH_BUFFER_SECONDS;
 
     if (!needsRefresh) {
       logger.info("Strava access token is still valid", {
@@ -157,7 +181,11 @@ export class StravaClient {
       secondsRemaining: expiresAt ? expiresAt - nowSeconds : null,
     });
 
-    const refreshedTokens = await this.refreshAccessToken(tokens.refreshToken);
+    const refreshedTokens = await this.refreshAccessToken(
+      tokens.refreshToken,
+      clientId,
+      clientSecret
+    );
 
     logger.info("Strava access token refreshed successfully", {
       newExpiresAt: refreshedTokens.expiresAt,
@@ -166,8 +194,6 @@ export class StravaClient {
 
     return {accessToken: refreshedTokens.accessToken, refreshedTokens};
   }
-
-  // ── Mapping ──────────────────────────────────────────────────────────────
 
   private mapActivity(a: StravaApiActivity): StravaActivity {
     return {
@@ -186,15 +212,9 @@ export class StravaClient {
     };
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
   private authHeader(token: string) {
     return {Authorization: `Bearer ${token}`};
   }
 }
 
-function toMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-export const stravaClient = new StravaClient();
+export const stravaService = new StravaService();

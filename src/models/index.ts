@@ -1,7 +1,7 @@
+// ── Webhook payload types ──────────────────────────────────────────────────
+
 export type StravaObjectType = "activity" | "athlete";
 export type StravaAspectType = "create" | "update" | "delete";
-
-// ── Webhook payload types ──────────────────────────────────────────────────
 
 export interface StravaActivityUpdates {
   title?: string;

@@ -1,6 +1,9 @@
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
-import type {StravaActivity, StravaTokens, StravaUserData, UserData} from "./types";
+import type {StravaActivity, StravaTokens, StravaUserData, UserData} from "../models";
+import {toMessage} from "../utils";
+
+admin.initializeApp();
 
 /**
  * Thin wrapper around Firebase Realtime Database.
@@ -108,7 +111,9 @@ export class DatabaseService {
       // Primary path: some datasets store googleUid as the users/{key} node key.
       const directUser = await this.getUser(normalizedGoogleUid);
       if (directUser) {
-        logger.info("App user resolved by users node key", {googleUid: normalizedGoogleUid});
+        logger.info("App user resolved by users node key", {
+          googleUid: normalizedGoogleUid,
+        });
         return directUser;
       }
 
@@ -121,7 +126,9 @@ export class DatabaseService {
         .once("value");
 
       if (!snapshot.exists()) {
-        logger.warn("App user not found by googleUid", {googleUid: normalizedGoogleUid});
+        logger.warn("App user not found by googleUid", {
+          googleUid: normalizedGoogleUid,
+        });
         return null;
       }
 
@@ -222,17 +229,11 @@ export class DatabaseService {
     }
   }
 
-  // ── Internals ────────────────────────────────────────────────────────────
+  // ── Internals ───────────────────────────────────────────────────────────
 
   private get db(): admin.database.Database {
     return admin.database();
   }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function toMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export const dbService = new DatabaseService();
