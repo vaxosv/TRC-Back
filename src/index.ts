@@ -20,7 +20,11 @@ const FRONTEND_ACTIVITY_LIMIT = 10;
 
 const STRAVA_CLIENT_ID_SECRET = defineSecret("STRAVA_CLIENT_ID");
 const STRAVA_CLIENT_SECRET_SECRET = defineSecret("STRAVA_CLIENT_SECRET");
-const ALLOWED_ORIGINS = new Set(["http://localhost:4200"]);
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:4200",
+  "http://192.168.1.11:4200",
+  "https://trc--telavirc-8373e.europe-west4.hosted.app",
+]);
 
 // ── Webhook handler class ──────────────────────────────────────────────────
 
@@ -232,6 +236,31 @@ export const exchangeStravaTokenHTTP = onRequest(
 );
 
 export const fetchActivitiesByGoogleUId = onRequest({region: REGION}, async (req, res) => {
+  const origin = req.headers.origin;
+
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "GET") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+    res.status(403).json({error: "Origin not allowed"});
+    return;
+  }
+
   try {
     const googleUId = req.query.googleUId;
 
