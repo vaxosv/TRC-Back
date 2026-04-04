@@ -4,13 +4,14 @@ import {ValidationError} from "../errors";
 import {toMessage} from "../utils";
 import {dbService} from "../services/database.service";
 import {stravaService} from "../services/strava.service";
-import {
-  STRAVA_CLIENT_ID_SECRET,
-  STRAVA_CLIENT_SECRET_SECRET,
-} from "../config";
+
+export interface Secrets {
+  clientId: string;
+  clientSecret: string;
+}
 
 export class AuthHandler {
-  async exchangeToken(req: Request, res: Response): Promise<void> {
+  async exchangeToken(req: Request, res: Response, secrets: Secrets): Promise<void> {
     try {
       const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
 
@@ -20,15 +21,17 @@ export class AuthHandler {
 
       const tokenData = await stravaService.exchangeAuthCode(
         code,
-        STRAVA_CLIENT_ID_SECRET.value(),
-        STRAVA_CLIENT_SECRET_SECRET.value()
+        secrets.clientId,
+        secrets.clientSecret
       );
 
       const athlete = await stravaService.getAthleteByAccessToken(tokenData.accessToken);
       const athleteId = athlete.id;
 
+      const uid = (res.locals as Record<string, unknown>).uid as string;
+
       await dbService.linkUserWithStravaAuth({
-        uid: res.locals.uid,
+        uid,
         athleteId,
         accessToken: tokenData.accessToken,
         refreshToken: tokenData.refreshToken,

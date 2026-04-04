@@ -5,14 +5,15 @@ import {toMessage, parseIntOrThrow} from "../utils";
 import {dbService} from "../services/database.service";
 import {stravaService} from "../services/strava.service";
 import {webhookHandler} from "./webhook.handler";
-import {
-  STRAVA_CLIENT_ID_SECRET,
-  STRAVA_CLIENT_SECRET_SECRET,
-} from "../config";
 import {FRONTEND_ACTIVITY_LIMIT} from "../constants";
 
+export interface Secrets {
+  clientId: string;
+  clientSecret: string;
+}
+
 export class ActivitiesHandler {
-  async fetchByGoogleUid(req: Request, res: Response): Promise<void> {
+  async fetchByGoogleUid(req: Request, res: Response, secrets: Secrets): Promise<void> {
     const googleUId = req.query.googleUId;
 
     if (typeof googleUId !== "string" || !googleUId.trim()) {
@@ -57,8 +58,8 @@ export class ActivitiesHandler {
           expiresAt: stravaUser.expiresAt,
         },
         activityQuantity,
-        STRAVA_CLIENT_ID_SECRET.value(),
-        STRAVA_CLIENT_SECRET_SECRET.value()
+        secrets.clientId,
+        secrets.clientSecret
       );
 
       if (refreshedTokens) {
@@ -79,7 +80,7 @@ export class ActivitiesHandler {
     }
   }
 
-  async fetchByAthleteId(req: Request, res: Response): Promise<void> {
+  async fetchByAthleteId(req: Request, res: Response, secrets: Secrets): Promise<void> {
     let athleteId: number;
     try {
       athleteId = parseIntOrThrow(req.query.athleteId as string, "athleteId");
@@ -91,8 +92,8 @@ export class ActivitiesHandler {
     try {
       const {activities} = await webhookHandler.fetchAndSaveActivities(
         athleteId,
-        STRAVA_CLIENT_ID_SECRET.value(),
-        STRAVA_CLIENT_SECRET_SECRET.value()
+        secrets.clientId,
+        secrets.clientSecret
       );
 
       res.status(200).json({athleteId, activitiesSaved: activities.length, activities});

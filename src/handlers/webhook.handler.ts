@@ -6,15 +6,19 @@ import {AthleteNotFoundError} from "../errors";
 import {toMessage} from "../utils";
 import {dbService} from "../services/database.service";
 import {stravaService} from "../services/strava.service";
-import {STRAVA_CLIENT_ID_SECRET, STRAVA_CLIENT_SECRET_SECRET} from "../config";
+
+export interface Secrets {
+  clientId: string;
+  clientSecret: string;
+}
 
 export class WebhookHandler {
-  async handle(req: Request, res: Response): Promise<void> {
+  async handle(req: Request, res: Response, secrets?: Secrets): Promise<void> {
     switch (req.method) {
     case "GET":
       return this.handleVerification(req, res);
     case "POST":
-      return this.handleEvent(req, res);
+      return this.handleEvent(req, res, secrets);
     default:
       res.status(405).json({error: "Method not allowed"});
     }
@@ -39,7 +43,7 @@ export class WebhookHandler {
 
   // ── Incoming webhook event ─────────────────────────────────────────────
 
-  private async handleEvent(req: Request, res: Response): Promise<void> {
+  private async handleEvent(req: Request, res: Response, secrets?: Secrets): Promise<void> {
     res.status(200).json({status: "ok"});
 
     const event = req.body as WebhookEvent;
@@ -57,7 +61,7 @@ export class WebhookHandler {
       }
 
       if (event.object_type === "activity") {
-        await this.handleActivityEvent(event);
+        await this.handleActivityEvent(event, secrets);
         return;
       }
 
@@ -76,17 +80,21 @@ export class WebhookHandler {
 
   // ── Activity event routing ─────────────────────────────────────────────
 
-  private async handleActivityEvent(event: WebhookEvent): Promise<void> {
+  private async handleActivityEvent(event: WebhookEvent, secrets?: Secrets): Promise<void> {
     const aspectType = event.aspect_type;
     const {object_id: activityId, owner_id: athleteId} = event;
 
     switch (aspectType) {
     case "create":
     case "update":
+      if (!secrets) {
+        logger.error("Secrets not provided for activity fetch", {activityId, athleteId});
+        return;
+      }
       await this.fetchAndSaveActivities(
         athleteId,
-        STRAVA_CLIENT_ID_SECRET.value(),
-        STRAVA_CLIENT_SECRET_SECRET.value()
+        secrets.clientId,
+        secrets.clientSecret
       );
       logger.info(`Activity ${aspectType} handled`, {activityId, athleteId});
       break;

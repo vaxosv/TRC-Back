@@ -1,8 +1,3 @@
-import {defineSecret} from "firebase-functions/params";
-
-export const STRAVA_CLIENT_ID_SECRET = defineSecret("STRAVA_CLIENT_ID");
-export const STRAVA_CLIENT_SECRET_SECRET = defineSecret("STRAVA_CLIENT_SECRET");
-
 export const ALLOWED_ORIGINS = new Set([
   "http://localhost:4200",
   "http://192.168.1.11:4200",

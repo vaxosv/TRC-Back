@@ -1,7 +1,8 @@
 import {onRequest} from "firebase-functions/v2/https";
+import {defineSecret} from "firebase-functions/params";
 import type {Request, Response} from "express";
 import {REGION} from "./constants";
-import {STRAVA_CLIENT_ID_SECRET, STRAVA_CLIENT_SECRET_SECRET, ALLOWED_ORIGINS} from "./config";
+import {ALLOWED_ORIGINS} from "./config";
 import {webhookHandler} from "./handlers/webhook.handler";
 import {activitiesHandler} from "./handlers/activities.handler";
 import {authHandler} from "./handlers/auth.handler";
@@ -9,6 +10,16 @@ import {withCors} from "./middleware/cors.middleware";
 import {verifyFirebaseToken} from "./middleware/auth.middleware";
 import {toMessage} from "./utils";
 import {ValidationError} from "./errors";
+
+// ── Secrets ────────────────────────────────────────────────────────────────
+
+const STRAVA_CLIENT_ID_SECRET = defineSecret("213881");
+const STRAVA_CLIENT_SECRET_SECRET = defineSecret("STRAVA_CLIENT_SECRET");
+
+const secrets = {
+  clientId: STRAVA_CLIENT_ID_SECRET,
+  clientSecret: STRAVA_CLIENT_SECRET_SECRET,
+};
 
 // ── Webhook ───────────────────────────────────────────────────────────────
 
@@ -19,7 +30,10 @@ export const stravaWebhookHandlerNew = onRequest(
   },
   (req, res) => {
     withCors(req, res);
-    webhookHandler.handle(req, res);
+    webhookHandler.handle(req, res, {
+      clientId: secrets.clientId.value(),
+      clientSecret: secrets.clientSecret.value(),
+    });
   }
 );
 
@@ -42,7 +56,10 @@ export const exchangeStravaTokenHTTP = onRequest(
       const decoded = await verifyFirebaseToken(req);
       (res.locals as Record<string, unknown>).uid = decoded.uid;
 
-      await authHandler.exchangeToken(req, res);
+      await authHandler.exchangeToken(req, res, {
+        clientId: secrets.clientId.value(),
+        clientSecret: secrets.clientSecret.value(),
+      });
     } catch (error) {
       if (error instanceof ValidationError) {
         res.status(401).json({error: error.message});
@@ -71,7 +88,10 @@ export const fetchActivitiesByGoogleUId = onRequest(
       return;
     }
 
-    await activitiesHandler.fetchByGoogleUid(req, res);
+    await activitiesHandler.fetchByGoogleUid(req, res, {
+      clientId: secrets.clientId.value(),
+      clientSecret: secrets.clientSecret.value(),
+    });
   }
 );
 
@@ -85,6 +105,9 @@ export const fetchAthleteActivitiesNew = onRequest(
       return;
     }
 
-    await activitiesHandler.fetchByAthleteId(req, res);
+    await activitiesHandler.fetchByAthleteId(req, res, {
+      clientId: secrets.clientId.value(),
+      clientSecret: secrets.clientSecret.value(),
+    });
   }
 );
